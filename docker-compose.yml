@@ -1,0 +1,57 @@
+# YouTube Watch Party: PostgreSQL + Spring Boot backend + React frontend (nginx)
+#
+#   docker compose up --build        ->  http://localhost:3000
+#
+# Every value below has a default, so a .env file is optional (see .env.example).
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: watchparty-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-watchparty}
+      POSTGRES_USER: ${POSTGRES_USER:-watchparty}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-watchparty}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-watchparty} -d ${POSTGRES_DB:-watchparty}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: watchparty-backend
+    environment:
+      PORT: 8080
+      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-watchparty}
+      DB_USER: ${POSTGRES_USER:-watchparty}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-watchparty}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      RECONNECT_GRACE_SECONDS: ${RECONNECT_GRACE_SECONDS:-30}
+      ROOM_RETENTION_DAYS: ${ROOM_RETENTION_DAYS:-7}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: watchparty-frontend
+    environment:
+      # nginx forwards /api and /ws to this address
+      BACKEND_URL: http://backend:8080
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
