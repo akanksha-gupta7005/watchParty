@@ -4,7 +4,7 @@ Watch YouTube videos together, in sync. Create a room, share the link or code, a
 video at the same moment. The host (and moderators) control playback; everyone else can chat and send
 requests for the host to approve.
 
-**Live demo URL:** _add your deployed URL here_
+**Live demo URL:** https://watchparty-1-f7g1.onrender.com
 
 ## Contents
 
