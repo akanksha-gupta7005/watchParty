@@ -12,14 +12,17 @@ public class Participant {
 
     private final String userId;
     private final String token;
+    private final long accountId;
     private final String username;
     private volatile Role role;
     private volatile Connection connection;
     private volatile long lastChatAt;
+    private volatile long lastReactionAt;
 
-    public Participant(String userId, String token, String username, Role role, Connection connection) {
+    public Participant(String userId, String token, long accountId, String username, Role role, Connection connection) {
         this.userId = userId;
         this.token = token;
+        this.accountId = accountId;
         this.username = username;
         this.role = role;
         this.connection = connection;
@@ -31,7 +34,10 @@ public class Participant {
     public void setRole(Role role) { this.role = role; }
     public Connection getConnection() { return connection; }
     public boolean isOnline() { return connection != null; }
+    public long getAccountId() { return accountId; }
     public long getLastChatAt() { return lastChatAt; }
+    public long getLastReactionAt() { return lastReactionAt; }
+    public void setLastReactionAt(long t) { this.lastReactionAt = t; }
     public void setLastChatAt(long lastChatAt) { this.lastChatAt = lastChatAt; }
 
     public boolean tokenMatches(String candidate) {

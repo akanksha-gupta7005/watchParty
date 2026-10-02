@@ -1,10 +1,10 @@
 # YouTube Watch Party
 
-Watch YouTube videos together, in sync. Create a room, share the link or code, and everyone sees the same
+Watch YouTube videos together, in sync. Log in, create a room, share the link or code, and everyone sees the same
 video at the same moment. The host (and moderators) control playback; everyone else can chat and send
 requests for the host to approve.
 
-**Live demo URL:** https://watchparty-1-f7g1.onrender.com
+**Live demo URL:** _add your deployed URL here_
 
 ## Contents
 
@@ -17,6 +17,8 @@ requests for the host to approve.
 7. [Roles and permissions](#roles-and-permissions)
 8. [WebSocket protocol](#websocket-protocol)
 9. [How synchronization works](#how-synchronization-works)
+    - [Assignment bonus checklist](#assignment-bonus-checklist)
+    - [Scaling plan](#scaling-plan)
 10. [Project structure](#project-structure)
 11. [Configuration](#configuration)
 12. [Deployment](#deployment)
@@ -26,6 +28,7 @@ requests for the host to approve.
 
 ## Features
 
+- **Accounts:** register and log in (passwords are hashed with PBKDF2; login uses signed tokens). Login is required to create or join a room
 - Create a room (you become **Host**) or join one with a **link or 6-character code**
 - Real-time sync of **play / pause / seek / change video** over WebSockets
 - Roles: **Host, Moderator, Participant, Viewer**. The host can assign roles, remove people and transfer the host role
@@ -33,6 +36,8 @@ requests for the host to approve.
 - **Approval workflow**: participants can request play / pause / seek / change video, and a host or moderator approves or rejects
 - Live participant list with roles and online status
 - Chat (messages stored in PostgreSQL, last 50 shown to late joiners)
+- **Emoji reactions** (heart, laugh, clap, wow, fire, like). They float over the video and show who reacted and the video time
+- **Room capacity limit** (default 100 people per room, configurable)
 - **Persistent rooms** in PostgreSQL: a room, its video and position survive a server restart
 - Reconnect grace period: refreshing the page keeps your seat and role (host included)
 - Late joiners start at the correct position; periodic heartbeat corrects drift
@@ -44,7 +49,7 @@ requests for the host to approve.
 | Frontend | React 18, TypeScript, Vite, React Router, browser-native WebSocket |
 | Video | YouTube IFrame Player API |
 | Backend | Java 17, Spring Boot 3.3, Spring WebSocket (raw `TextWebSocketHandler`), Spring Data JPA |
-| Database | PostgreSQL 16 |
+| Database | PostgreSQL 16 (HikariCP connection pool) |
 | Packaging | Docker, Docker Compose, nginx (serves the frontend and proxies `/api` and `/ws`) |
 
 ## Quick start (Docker)
@@ -93,13 +98,14 @@ The Vite dev server proxies `/api` and `/ws` to port 8080, so no extra setup is 
 
 ## Try it with several users
 
-1. Open http://localhost:3000, enter a name and click **Create a new room**. You are the Host.
-2. Click **Copy invite link**. Open it in a **private/incognito window** (or another browser). Enter a different name. That user is a Participant.
+1. Open http://localhost:3000, click **Create account** and register (for example `amit`). Then click **Create a new room**. You are the Host.
+2. Click **Copy invite link**. Open it in a **new tab** (each tab keeps its own login) or an incognito window. Register a second account (for example `riya`). That user is a Participant.
 3. In every window click **Join playback** once (browsers block autoplay until you click).
 4. As Host: press play, pause, drag the timeline, paste another YouTube link and click **Play for everyone**. Everyone follows.
 5. As Participant: the player is locked. Use **Request a change**; the Host sees it under **Requests** and can approve or reject.
 6. As Host: use the dropdown next to a participant to make them **Moderator**, then watch their controls unlock. Try **Make host** and **Remove** too.
-7. Refresh a window: you keep your seat and role. Close all windows and reopen the room link later: the room and video are still there.
+7. Click an emoji under the video: it floats over the video for everyone, with your name and the video time.
+8. Refresh a window: you keep your seat and role. Close all windows and reopen the room link later: the room and video are still there.
 
 ## Architecture
 
@@ -158,12 +164,13 @@ can push a state change to all clients immediately, without polling.
 | Transfer host | yes | no | no | no |
 | Request a change | n/a | n/a | yes | yes |
 | Chat | yes | yes | yes | yes |
+| Emoji reactions | yes | yes | yes | yes |
 
-- The creator becomes Host. Everyone who joins by link or code starts as **Participant**.
+- The creator becomes Host (the room remembers its owner account, so the owner gets Host again after a restart). Everyone who joins by link or code starts as **Participant**.
 - Only the Host can assign **Moderator / Participant / Viewer**. *Viewer* behaves the same as Participant (a label to tell watchers apart).
 - **Transfer host**: the old host becomes a Moderator.
 - If the host leaves for good, the longest-present online Moderator (otherwise participant) becomes Host automatically.
-- The creator holds a secret **host key** (stored in their browser). If they come back to an empty room, the key lets them take the Host seat again. A link alone never grants Host.
+- A link alone never grants Host. Host is given only to the room's owner account (or to the holder of the secret host key from room creation).
 
 ## WebSocket protocol
 
@@ -177,7 +184,7 @@ Endpoint: `/ws`. Every message is JSON with one envelope:
 
 | type | payload | Allowed roles | Effect |
 |---|---|---|---|
-| `join_room` | `{ roomId, username, hostKey?, userId?, token? }` | anyone | Join; `userId`+`token` resume an old seat |
+| `join_room` | `{ roomId, authToken, hostKey? }` | logged-in user | Join. The name comes from the login token. The same account gets its old seat back |
 | `leave_room` | `{}` | anyone | Leave immediately |
 | `play` | `{ time? }` | Host, Moderator | Start playback |
 | `pause` | `{ time? }` | Host, Moderator | Pause |
@@ -189,6 +196,7 @@ Endpoint: `/ws`. Every message is JSON with one envelope:
 | `request_action` | `{ action, data }` | Participant, Viewer | `action`: `play`, `pause`, `seek`, `change_video` |
 | `resolve_request` | `{ requestId, approve }` | Host, Moderator | Approve (runs the action) or reject |
 | `chat` | `{ text }` | anyone | Max 500 characters |
+| `react` | `{ emoji }` | anyone | `emoji` is `heart`, `laugh`, `clap`, `wow`, `fire` or `like` |
 | `ping` | `{}` | anyone | Keep-alive, answered with `pong` |
 
 ### Server to client
@@ -209,17 +217,21 @@ Endpoint: `/ws`. Every message is JSON with one envelope:
 | `request_sent` | `{ requestId, action }` | the requester |
 | `request_resolved` | `{ requestId, approve, action, userId, resolvedBy }` | Host, Moderators and the requester |
 | `chat` | `{ id, userId, username, text, ts }` | room |
+| `reaction` | `{ userId, username, emoji, videoTime, ts }` | room (includes the sender) |
 | `replaced` | `{}` | an old tab whose seat a newer tab took over |
 | `error` | `{ code, message }` | the sender only |
 | `pong` | `{}` | the sender |
 
-Error codes: `BAD_REQUEST`, `FORBIDDEN`, `NOT_FOUND`, `NOT_IN_ROOM`, `RATE_LIMITED`, `INTERNAL`.
+Error codes: `BAD_REQUEST`, `UNAUTHORIZED` (missing or bad login), `FORBIDDEN`, `NOT_FOUND`, `NOT_IN_ROOM`, `ROOM_FULL`, `RATE_LIMITED`, `INTERNAL`.
 
-### REST (only for room creation)
+### REST (accounts and room creation)
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/rooms` | Create a room; returns `{ code, hostKey }` |
+| `POST` | `/api/auth/register` | `{ username, password }` returns `{ token, user }` |
+| `POST` | `/api/auth/login` | `{ username, password }` returns `{ token, user }` |
+| `GET` | `/api/auth/me` | Who am I (needs `Authorization: Bearer <token>`) |
+| `POST` | `/api/rooms` | Create a room (needs login); returns `{ code, hostKey }` |
 | `GET` | `/api/rooms/{code}` | `200` if the room exists, otherwise `404` |
 | `GET` | `/api/health` | Liveness check |
 
@@ -233,6 +245,41 @@ Error codes: `BAD_REQUEST`, `FORBIDDEN`, `NOT_FOUND`, `NOT_IN_ROOM`, `RATE_LIMIT
 - **Locked player:** Participants and Viewers get a transparent overlay over the player. This is only for convenience; the server rejects their commands anyway.
 - **Autoplay:** browsers block autoplay with sound, so everyone clicks **Join playback** once.
 - **Atomic updates:** state change and broadcast happen under the same room lock, so two simultaneous actions can never leave clients disagreeing with the server.
+
+## Assignment bonus checklist
+
+| Bonus idea | Status | Where |
+|---|---|---|
+| OOP structure for the WebSocket server | Done | `Room`, `Participant`, `PlaybackState`, `MessageRouter`, `MessageHandler` + 7 handlers, `PermissionPolicy`, `Validation` |
+| Persistent rooms (save room ID/state in DB) | Done | `RoomEntity` in PostgreSQL: code, owner, video, position |
+| Authentication (login before joining) | Done | `AuthController`, `AuthService`, `PasswordHasher` (PBKDF2), `TokenService` (signed tokens), login required for REST room creation and for `join_room` |
+| Text chat in the room | Done | `ChatHandler`, `chat_messages` table |
+| Emoji reactions on key moments | Done | `ReactionHandler`, `ReactionBar`, `ReactionLayer` (floating emoji + video time) |
+| Transfer host | Done | `transfer_host` in `RoleHandler` |
+| Scalability: connection pooling | Done | HikariCP pool (`DB_POOL_SIZE`) |
+| Scalability: room size limit | Done | `MAX_PARTICIPANTS_PER_ROOM` (default 100, above the 50+ target) |
+| Scalability: stateless login | Done | Tokens are signed, so any server with the same `AUTH_SECRET` accepts them |
+| Scalability: several servers + Redis Pub/Sub + load balancer | **Designed, not built** | See the scaling plan below |
+
+How login works:
+
+1. `POST /api/auth/register` or `/login` checks the password against a salted PBKDF2 hash (the password itself is never stored) and returns a **token**.
+2. The token is `base64(userId|expiry|username).signature`. The signature is an HMAC-SHA256 made with `AUTH_SECRET`. If anyone edits the token, the signature stops matching.
+3. The browser keeps the token in `sessionStorage` (one login per tab) and sends it as `Authorization: Bearer ...` for REST calls and as `authToken` in `join_room`.
+4. The server takes the user name from the token, never from the message. One account has one seat in a room, so a refresh or a second tab takes the same seat back.
+
+## Scaling plan
+
+Today the app runs as **one backend instance**. Live rooms are in that instance's memory, so a second instance would not see them. This is what I would change to reach 1,000+ users, 100+ rooms and 50+ users per room:
+
+1. **Redis Pub/Sub for cross-server broadcast.** Each room gets a channel (`room:<code>`). When `Room` broadcasts, the instance publishes the event to Redis. Every instance subscribes to the channels of rooms that have a local socket, and forwards each event to its own sockets. (This is the idea behind the Socket.IO Redis adapter.)
+2. **Shared room state in Redis** (video, position, roles, pending requests) in a hash per room, with atomic updates (Lua script or optimistic locking), so any instance can handle any message.
+3. **Load balancer** that supports WebSocket upgrades (nginx, HAProxy or a cloud load balancer). Sticky sessions are not required once state is shared.
+4. **Stateless login** is already done: signed tokens need no session store, only the same `AUTH_SECRET` on every instance.
+5. **Connection pooling** is already done: HikariCP with a configurable size. With many instances, keep `instances x pool size` below the database connection limit.
+6. **Cost per room:** a broadcast sends one small JSON message to each person. At 50 people per room, one action sends 50 messages. This is why messages stay small and why the heartbeat runs only every 10 seconds.
+
+I did not implement Redis in this version. The code is already organised for it: all fan-out goes through `Room.broadcast`, so the change would be local to that class and to `RoomService`.
 
 ## Project structure
 
@@ -253,8 +300,8 @@ watchparty/
 │       │   │   ├── WebSocketConfig.java      registers /ws, origin check, size/idle limits
 │       │   │   ├── CorsConfig.java           CORS for /api
 │       │   │   └── SchedulingConfig.java     shared scheduler
-│       │   ├── controller/RoomController.java   POST/GET /api/rooms, /api/health
-│       │   ├── entity/                       RoomEntity, ChatMessageEntity (JPA)
+│       │   ├── controller/                   RoomController (rooms, health), AuthController (register, login, me)
+│       │   ├── entity/                       RoomEntity, ChatMessageEntity, UserEntity (JPA)
 │       │   ├── repository/                   Spring Data repositories
 │       │   ├── model/
 │       │   │   ├── Room.java                 live room: members, playback, requests, broadcast
@@ -262,12 +309,14 @@ watchparty/
 │       │   │   ├── PlaybackState.java        position + timestamp math
 │       │   │   ├── PendingRequest.java, PlaybackSnapshot.java, RemovalResult.java
 │       │   │   └── Role.java, Action.java    enums
-│       │   ├── security/PermissionPolicy.java   role -> allowed actions
-│       │   ├── exception/                    WsException, PermissionDeniedException
+│       │   ├── security/                     PermissionPolicy (role -> actions), PasswordHasher (PBKDF2),
+│       │   │                                 TokenService (signed login tokens), AuthUser
+│       │   ├── exception/                    WsException, PermissionDeniedException, ApiException + handler
 │       │   ├── service/
 │       │   │   ├── RoomService.java          in-memory rooms + PostgreSQL persistence
 │       │   │   ├── MembershipService.java    join / leave / reconnect grace
 │       │   │   ├── PlaybackService.java      single code path for state changes
+│       │   │   ├── AuthService.java          register, login, read user from token
 │       │   │   └── ScheduledTasks.java       heartbeat + old-room purge
 │       │   └── websocket/
 │       │       ├── WatchPartyHandler.java    transport only
@@ -275,19 +324,19 @@ watchparty/
 │       │       ├── Connection.java           one socket + its bound room/user
 │       │       ├── Outbound.java             builds outgoing JSON
 │       │       ├── Validation.java           payload validation
-│       │       └── handlers/                 Membership, Playback, Role, Request, Chat, Ping
-│       └── test/java/com/watchparty/         PermissionPolicyTest, PlaybackStateTest
+│       │       └── handlers/                 Membership, Playback, Role, Request, Chat, Reaction, Ping
+│       └── test/java/com/watchparty/         PermissionPolicyTest, PlaybackStateTest, TokenServiceTest, PasswordHasherTest
 └── frontend/
     ├── Dockerfile                    Vite build -> nginx
     ├── nginx.conf.template           serves SPA, proxies /api and /ws
     ├── package.json, vite.config.ts, tsconfig.json, index.html
     └── src/
         ├── main.tsx, App.tsx, styles.css
-        ├── pages/        Home.tsx (create / join), Room.tsx (the room screen)
+        ├── pages/        Login.tsx (log in / register), Home.tsx (create / join), Room.tsx (the room screen)
         ├── hooks/        useRoom.ts (WebSocket, reconnect, state reducer)
         ├── components/   YouTubePlayer, ParticipantList, RequestPanel, RequestsPanel,
-        │                 VideoUrlInput, Chat, Toasts
-        └── lib/          types, config, api, storage, time, youtube
+        │                 VideoUrlInput, Chat, Toasts, ReactionBar, ReactionLayer
+        └── lib/          types, config, api, auth, storage, time, youtube
 ```
 
 ## Configuration
@@ -303,6 +352,10 @@ Backend environment variables (defaults in `application.properties`):
 | `RECONNECT_GRACE_SECONDS` | `30` | How long a disconnected user keeps their seat |
 | `ROOM_RETENTION_DAYS` | `7` | Inactive rooms are deleted after this many days |
 | `DEFAULT_VIDEO_ID` | `M7lc1UVf-VE` | Video of a brand new room |
+| `AUTH_SECRET` | dev value | **Set your own long random value in production.** It signs login tokens |
+| `AUTH_TOKEN_DAYS` | `7` | How long a login stays valid |
+| `MAX_PARTICIPANTS_PER_ROOM` | `100` | Room capacity. The next person gets `ROOM_FULL` |
+| `DB_POOL_SIZE` | `10` | Size of the database connection pool |
 
 Frontend build variables (only needed when the backend is on a different host):
 
@@ -333,6 +386,7 @@ uses `wss://` automatically because it derives the WebSocket address from the pa
    - `DB_URL=jdbc:postgresql://<internal-host>:5432/<database>`
    - `DB_USER=<user>`, `DB_PASSWORD=<password>`
    - `ALLOWED_ORIGINS=https://<your-frontend>.onrender.com`
+   - `AUTH_SECRET=<a long random value, 40+ characters>` (keep it private; if you change it, everyone must log in again)
 3. **Frontend**: New > Static Site, root directory `frontend`, build command `npm install && npm run build`, publish directory `dist`. Environment:
    - `VITE_API_URL=https://<your-backend>.onrender.com`
    - `VITE_WS_URL=wss://<your-backend>.onrender.com/ws`
@@ -349,7 +403,7 @@ Notes:
 cd backend && mvn test
 ```
 
-`PermissionPolicyTest` covers the role matrix and `PlaybackStateTest` covers the position math.
+`PermissionPolicyTest` covers the role matrix, `PlaybackStateTest` the position math, `TokenServiceTest` the login tokens (valid, edited, expired, wrong secret) and `PasswordHasherTest` the password hashing.
 
 ## Design decisions and trade-offs
 
@@ -361,7 +415,7 @@ cd backend && mvn test
 - **Hybrid persistence.** Durable data (rooms, video, position, chat) is in PostgreSQL. Live data (sockets, roles, pending requests) is in memory. Roles reset if the server restarts, because everyone disconnects anyway.
 - **Single backend instance.** Rooms live in one JVM's memory. Horizontal scaling needs Redis Pub/Sub for cross-instance broadcast and shared room state in Redis, behind a WebSocket-aware load balancer. This is the natural next step.
 - **`ddl-auto=update`** keeps setup simple. A production system would use Flyway or Liquibase migrations.
-- **Known limits.** A removed user can rejoin with the link (there is no ban list). No authentication (names are free text). Roles are not persisted across a backend restart. Drift correction assumes the host's video plays steadily in real time.
+- **Known limits.** A removed user can rejoin with the link (there is no ban list). Login has no password reset, email check or login-attempt limit. Roles are not persisted across a backend restart. Drift correction assumes the host's video plays steadily in real time.
 
 ## Troubleshooting
 

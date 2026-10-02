@@ -25,11 +25,11 @@ public class PermissionPolicy {
         // Moderator: playback + reviewing requests (+ chat)
         rules.put(Role.MODERATOR, EnumSet.of(
                 Action.PLAY, Action.PAUSE, Action.SEEK, Action.CHANGE_VIDEO,
-                Action.RESOLVE_REQUEST, Action.CHAT));
+                Action.RESOLVE_REQUEST, Action.CHAT, Action.REACT));
 
         // Participant / Viewer: watch, chat, and ask a manager to approve a change
-        rules.put(Role.PARTICIPANT, EnumSet.of(Action.REQUEST_ACTION, Action.CHAT));
-        rules.put(Role.VIEWER, EnumSet.of(Action.REQUEST_ACTION, Action.CHAT));
+        rules.put(Role.PARTICIPANT, EnumSet.of(Action.REQUEST_ACTION, Action.CHAT, Action.REACT));
+        rules.put(Role.VIEWER, EnumSet.of(Action.REQUEST_ACTION, Action.CHAT, Action.REACT));
     }
 
     public boolean can(Role role, Action action) {

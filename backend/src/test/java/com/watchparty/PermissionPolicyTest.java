@@ -41,6 +41,7 @@ class PermissionPolicyTest {
             assertThat(policy.can(r, Action.CHANGE_VIDEO)).isFalse();
             assertThat(policy.can(r, Action.REQUEST_ACTION)).isTrue();
             assertThat(policy.can(r, Action.CHAT)).isTrue();
+            assertThat(policy.can(r, Action.REACT)).isTrue();
         }
     }
 

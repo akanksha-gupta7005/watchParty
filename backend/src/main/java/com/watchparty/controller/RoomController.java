@@ -1,5 +1,7 @@
 package com.watchparty.controller;
 
+import com.watchparty.security.AuthUser;
+import com.watchparty.service.AuthService;
 import com.watchparty.service.RoomService;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -7,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -18,15 +21,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class RoomController {
 
     private final RoomService rooms;
+    private final AuthService auth;
 
-    public RoomController(RoomService rooms) {
+    public RoomController(RoomService rooms, AuthService auth) {
         this.rooms = rooms;
+        this.auth = auth;
     }
 
-    /** Creates a room. The returned hostKey proves ownership when the creator joins the socket. */
+    /** Creates a room. Needs a login. The creator is saved as the owner and becomes the Host. */
     @PostMapping("/rooms")
-    public Map<String, Object> create() {
-        RoomService.CreatedRoom created = rooms.createRoom();
+    public Map<String, Object> create(@RequestHeader(name = "Authorization", required = false) String header) {
+        AuthUser user = auth.requireUser(header);
+        RoomService.CreatedRoom created = rooms.createRoom(user.id());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("code", created.code());
         body.put("hostKey", created.hostKey());

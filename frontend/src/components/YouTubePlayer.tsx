@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { loadYouTubeApi, PS } from '../lib/youtube';
 import type { YTPlayer } from '../lib/youtube';
 import type { SyncState } from '../lib/types';
@@ -8,6 +9,8 @@ interface Props {
   canControl: boolean;
   /** Host/Moderator only: tell the server about a local play/pause/seek. */
   onCommand: (type: 'play' | 'pause' | 'seek', payload: { time: number }) => void;
+  /** Drawn on top of the video (used for floating emoji reactions). */
+  overlay?: ReactNode;
 }
 
 const DRIFT_PLAYING = 1.5; // seconds of drift tolerated while playing
@@ -24,7 +27,7 @@ const SUPPRESS_MS = 1200; // ignore player events right after we changed the pla
  * Echo-loop protection: changing the player from code also fires player events, so for a short
  * window after applying remote state those events are ignored.
  */
-export default function YouTubePlayer({ sync, canControl, onCommand }: Props) {
+export default function YouTubePlayer({ sync, canControl, onCommand, overlay }: Props) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
@@ -218,6 +221,7 @@ export default function YouTubePlayer({ sync, canControl, onCommand }: Props) {
     <div className="player-card">
       <div className="player-wrap" ref={wrapperRef}>
         <div className="player-frame" ref={containerRef} />
+        {overlay}
 
         {/* Viewers cannot click through to the YouTube controls (the server would ignore them anyway). */}
         {!canControl && started && (

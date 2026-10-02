@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import { wsUrl } from '../lib/config';
-import { loadHostKey, loadSession, saveSession } from '../lib/storage';
+import { loadHostKey } from '../lib/storage';
 import { formatTime } from '../lib/time';
 import type {
   ActionRequest,
   ChatMessage,
   Notice,
   Participant,
+  Reaction,
   Role,
   SyncState,
 } from '../lib/types';
@@ -18,7 +19,9 @@ export type Status =
   | 'closed'
   | 'removed'
   | 'replaced'
-  | 'not_found';
+  | 'not_found'
+  | 'unauthorized'
+  | 'room_full';
 
 export interface RoomState {
   status: Status;
@@ -29,6 +32,8 @@ export interface RoomState {
   requests: ActionRequest[];
   notices: Notice[];
   noticeSeq: number;
+  reactions: Reaction[];
+  reactionSeq: number;
 }
 
 const initialState: RoomState = {
@@ -40,6 +45,8 @@ const initialState: RoomState = {
   requests: [],
   notices: [],
   noticeSeq: 0,
+  reactions: [],
+  reactionSeq: 0,
 };
 
 type Action =
@@ -47,7 +54,7 @@ type Action =
   | { type: 'server'; msg: { type: string; payload: any } }
   | { type: 'dismiss_notice'; id: number };
 
-const FINAL: Status[] = ['removed', 'replaced', 'not_found'];
+const FINAL: Status[] = ['removed', 'replaced', 'not_found', 'unauthorized', 'room_full'];
 
 function addNotice(state: RoomState, kind: Notice['kind'], text: string): RoomState {
   const id = state.noticeSeq + 1;
@@ -173,6 +180,19 @@ function reducer(state: RoomState, action: Action): RoomState {
           return next;
         }
 
+        case 'reaction': {
+          const id = state.reactionSeq + 1;
+          const reaction: Reaction = {
+            id,
+            userId: p.userId,
+            username: p.username,
+            emoji: p.emoji,
+            videoTime: p.videoTime ?? 0,
+            receivedAt: Date.now(),
+          };
+          return { ...state, reactionSeq: id, reactions: [...state.reactions, reaction].slice(-40) };
+        }
+
         case 'chat': {
           const chat = [...state.chat, p as ChatMessage].slice(-200);
           return { ...state, chat };
@@ -188,6 +208,8 @@ function reducer(state: RoomState, action: Action): RoomState {
           if (p.code === 'NOT_FOUND' && state.status !== 'joined') {
             return { ...state, status: 'not_found' };
           }
+          if (p.code === 'UNAUTHORIZED') return { ...state, status: 'unauthorized' };
+          if (p.code === 'ROOM_FULL') return { ...state, status: 'room_full' };
           return addNotice(state, 'error', p.message ?? 'Something went wrong');
         }
 
@@ -202,7 +224,7 @@ function reducer(state: RoomState, action: Action): RoomState {
  * Owns the WebSocket for one room: connects, joins, reconnects with back-off,
  * keeps the connection alive and turns server messages into React state.
  */
-export function useRoom(roomCode: string, username: string) {
+export function useRoom(roomCode: string, authToken: string) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -231,16 +253,14 @@ export function useRoom(roomCode: string, username: string) {
 
       ws.onopen = () => {
         attempt = 0;
-        const session = loadSession(roomCode);
+        // The server reads our name from the login token, so we never send a name.
         ws.send(
           JSON.stringify({
             type: 'join_room',
             payload: {
               roomId: roomCode,
-              username,
+              authToken,
               hostKey: loadHostKey(roomCode) ?? undefined,
-              userId: session?.userId,
-              token: session?.token,
             },
           }),
         );
@@ -257,11 +277,8 @@ export function useRoom(roomCode: string, username: string) {
         } catch {
           return;
         }
-        if (msg.type === 'joined') {
-          saveSession(roomCode, { userId: msg.payload.userId, token: msg.payload.token });
-        }
         if (msg.type === 'removed' || msg.type === 'replaced') fatal = true;
-        if (msg.type === 'error' && msg.payload?.code === 'NOT_FOUND') fatal = true;
+        if (msg.type === 'error' && ['NOT_FOUND', 'UNAUTHORIZED', 'ROOM_FULL'].includes(msg.payload?.code)) fatal = true;
         dispatch({ type: 'server', msg });
       };
 
@@ -292,7 +309,7 @@ export function useRoom(roomCode: string, username: string) {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [roomCode, username]);
+  }, [roomCode, authToken]);
 
   const dismissNotice = useCallback((id: number) => dispatch({ type: 'dismiss_notice', id }), []);
 

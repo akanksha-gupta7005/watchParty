@@ -7,6 +7,8 @@ import com.watchparty.model.Participant;
 import com.watchparty.model.RemovalResult;
 import com.watchparty.model.Role;
 import com.watchparty.model.Room;
+import com.watchparty.security.AuthUser;
+import com.watchparty.security.TokenService;
 import com.watchparty.websocket.Connection;
 import com.watchparty.websocket.Validation;
 import java.util.List;
@@ -31,12 +33,15 @@ public class MembershipService {
     private static final Logger log = LoggerFactory.getLogger(MembershipService.class);
 
     private final RoomService rooms;
+    private final TokenService tokens;
     private final AppProperties props;
     private final ScheduledExecutorService scheduler;
     private final ConcurrentMap<String, ScheduledFuture<?>> graceTimers = new ConcurrentHashMap<>();
 
-    public MembershipService(RoomService rooms, AppProperties props, ScheduledExecutorService scheduler) {
+    public MembershipService(RoomService rooms, TokenService tokens, AppProperties props,
+                             ScheduledExecutorService scheduler) {
         this.rooms = rooms;
+        this.tokens = tokens;
         this.props = props;
         this.scheduler = scheduler;
     }
@@ -48,40 +53,39 @@ public class MembershipService {
             throw new WsException("BAD_REQUEST", "This connection already joined a room");
         }
         String code = Validation.roomCode(payload);
-        String username = Validation.username(payload);
-        String userId = Validation.text(payload, "userId");
-        String token = Validation.text(payload, "token");
         String hostKey = Validation.text(payload, "hostKey");
+
+        // Login is required. The name comes from the account, never from the message.
+        AuthUser user = tokens.verify(Validation.text(payload, "authToken"))
+                .orElseThrow(() -> new WsException("UNAUTHORIZED", "Please log in again"));
 
         Room room = rooms.find(code).orElseThrow(() -> new WsException("NOT_FOUND", "Room not found"));
         List<Map<String, Object>> history = rooms.recentChat(code);
 
-        // 1) Resume an existing seat (refresh / reconnect)
-        if (userId != null && token != null) {
-            Participant existing = room.findByUserId(userId);
-            if (existing != null && existing.tokenMatches(token) && room.reattach(existing, conn, history)) {
-                cancelGrace(code, userId);
-                conn.bind(code, userId);
-                return;
-            }
+        // 1) Same account already has a seat (refresh, reconnect, or another tab): take it back.
+        Participant existing = room.findByAccountId(user.id());
+        if (existing != null && room.reattach(existing, conn, history)) {
+            cancelGrace(code, existing.getUserId());
+            conn.bind(code, existing.getUserId());
+            return;
         }
 
-        // 2) New seat. Only the creator (holding the host key) gets Host, and only if no host is present.
+        // 2) New seat. The room creator gets Host (if nobody is host right now). Everyone else is a Participant.
         Role role = Role.PARTICIPANT;
-        if (!room.hasHost() && rooms.hostKeyMatches(code, hostKey)) {
+        if (!room.hasHost() && (rooms.isOwner(code, user.id()) || rooms.hostKeyMatches(code, hostKey))) {
             role = Role.HOST;
         }
-        Participant p = room.join(username, role, conn, history);
+        Participant p = room.join(user.username(), user.id(), role, conn, history);
         if (p == null) {
             // The room was closed (emptied) while we were joining: load it again once.
             room = rooms.find(code).orElseThrow(() -> new WsException("NOT_FOUND", "Room not found"));
-            p = room.join(username, role, conn, history);
+            p = room.join(user.username(), user.id(), role, conn, history);
             if (p == null) {
                 throw new WsException("INTERNAL", "Could not join the room, please try again");
             }
         }
         conn.bind(code, p.getUserId());
-        log.info("{} joined room {} as {}", username, code, role);
+        log.info("{} joined room {} as {}", user.username(), code, role);
     }
 
     // ------------------------------------------------------------------ leave / disconnect

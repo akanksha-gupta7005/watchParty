@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.watchparty.exception.WsException;
 import com.watchparty.model.Role;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -14,6 +15,8 @@ public final class Validation {
     private static final Pattern VIDEO_ID = Pattern.compile("^[A-Za-z0-9_-]{11}$");
     private static final Pattern ROOM_CODE = Pattern.compile("^[A-Z0-9]{4,12}$");
     private static final double MAX_SECONDS = 1_000_000d;
+    /** Allowed reactions. The browser maps each key to an emoji picture. */
+    private static final Set<String> REACTIONS = Set.of("heart", "laugh", "clap", "wow", "fire", "like");
 
     private Validation() {
     }
@@ -88,6 +91,14 @@ public final class Validation {
         String s = text(payload, "videoId");
         if (s == null || !VIDEO_ID.matcher(s).matches()) {
             throw new WsException("BAD_REQUEST", "Invalid YouTube video id");
+        }
+        return s;
+    }
+
+    public static String reaction(JsonNode payload) {
+        String s = text(payload, "emoji");
+        if (s == null || !REACTIONS.contains(s)) {
+            throw new WsException("BAD_REQUEST", "Unknown reaction");
         }
         return s;
     }

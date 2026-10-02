@@ -34,6 +34,10 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
       RECONNECT_GRACE_SECONDS: ${RECONNECT_GRACE_SECONDS:-30}
       ROOM_RETENTION_DAYS: ${ROOM_RETENTION_DAYS:-7}
+      # Secret that signs login tokens. Set your own long random value in .env for real use.
+      AUTH_SECRET: ${AUTH_SECRET:-dev-only-secret-change-me-in-production-0123456789abcdef}
+      MAX_PARTICIPANTS_PER_ROOM: ${MAX_PARTICIPANTS_PER_ROOM:-100}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
     depends_on:
       db:
         condition: service_healthy

@@ -166,3 +166,26 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1
 .toast-success { border-left-color: var(--green); }
 .toast-error { border-left-color: var(--red); }
 .toast-info { border-left-color: var(--accent); }
+
+/* ---------- Login / account ---------- */
+.tabs { display: flex; gap: 6px; background: var(--panel-2); padding: 4px; border-radius: 10px; }
+.tab { flex: 1; background: transparent; color: var(--muted); border: 0; padding: 8px; border-radius: 8px; font: inherit; cursor: pointer; }
+.tab.active { background: var(--accent); color: #fff; }
+.who-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); }
+.who-row strong { color: var(--text); }
+
+/* ---------- Reactions ---------- */
+.reaction-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; }
+.reaction-btn { background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; font-size: 22px; line-height: 1; padding: 6px 12px; cursor: pointer; transition: transform 0.1s; }
+.reaction-btn:hover { transform: scale(1.15); border-color: var(--accent); }
+.reaction-btn:active { transform: scale(0.95); }
+
+.reaction-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
+.floating { position: absolute; bottom: 12%; display: flex; flex-direction: column; align-items: center; animation: float-up 3.2s ease-out forwards; }
+.floating-emoji { font-size: 40px; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6)); }
+.floating-who { font-size: 11px; background: rgba(0, 0, 0, 0.65); color: #fff; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+@keyframes float-up {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  10% { opacity: 1; transform: translateY(-20px) scale(1); }
+  100% { transform: translateY(-260px) scale(1.1); opacity: 0; }
+}

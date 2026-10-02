@@ -10,7 +10,10 @@ public record AppProperties(
         String allowedOrigins,
         int reconnectGraceSeconds,
         int roomRetentionDays,
-        String defaultVideoId) {
+        String defaultVideoId,
+        String authSecret,
+        int authTokenDays,
+        int maxParticipantsPerRoom) {
 
     /** Allowed origins split into an array (supports patterns such as "*" or "https://*.example.com"). */
     public String[] allowedOriginArray() {

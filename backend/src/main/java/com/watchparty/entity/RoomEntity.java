@@ -30,6 +30,10 @@ public class RoomEntity {
     @Column(name = "position_seconds", nullable = false)
     private double positionSeconds;
 
+    /** Account id of the creator. Nullable so rooms made before accounts existed still load. */
+    @Column(name = "owner_id")
+    private Long ownerId;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -40,8 +44,9 @@ public class RoomEntity {
         // required by JPA
     }
 
-    public RoomEntity(String code, String hostKey, String videoId) {
+    public RoomEntity(String code, String hostKey, String videoId, Long ownerId) {
         this.code = code;
+        this.ownerId = ownerId;
         this.hostKey = hostKey;
         this.videoId = videoId;
         this.playing = false;
@@ -52,6 +57,7 @@ public class RoomEntity {
 
     public String getCode() { return code; }
     public String getHostKey() { return hostKey; }
+    public Long getOwnerId() { return ownerId; }
     public String getVideoId() { return videoId; }
     public void setVideoId(String videoId) { this.videoId = videoId; }
     public boolean isPlaying() { return playing; }

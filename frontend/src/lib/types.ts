@@ -53,3 +53,24 @@ export const ROLE_LABEL: Record<Role, string> = {
   PARTICIPANT: 'Participant',
   VIEWER: 'Viewer',
 };
+
+// ---- Emoji reactions (the server only knows the keys; the emoji pictures live here) ----
+export type ReactionKey = 'heart' | 'laugh' | 'clap' | 'wow' | 'fire' | 'like';
+
+export const REACTIONS: { key: ReactionKey; emoji: string; label: string }[] = [
+  { key: 'heart', emoji: '\u2764\uFE0F', label: 'Love' },
+  { key: 'laugh', emoji: '\uD83D\uDE02', label: 'Funny' },
+  { key: 'clap', emoji: '\uD83D\uDC4F', label: 'Clap' },
+  { key: 'wow', emoji: '\uD83D\uDE2E', label: 'Wow' },
+  { key: 'fire', emoji: '\uD83D\uDD25', label: 'Fire' },
+  { key: 'like', emoji: '\uD83D\uDC4D', label: 'Like' },
+];
+
+export interface Reaction {
+  id: number;
+  userId: string;
+  username: string;
+  emoji: ReactionKey;
+  videoTime: number; // video position (seconds) when it happened
+  receivedAt: number;
+}

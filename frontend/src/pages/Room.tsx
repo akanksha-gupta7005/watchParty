@@ -1,60 +1,26 @@
 import { useCallback, useState } from 'react';
-import type { FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import Chat from '../components/Chat';
 import ParticipantList from '../components/ParticipantList';
+import ReactionBar from '../components/ReactionBar';
+import ReactionLayer from '../components/ReactionLayer';
 import RequestPanel from '../components/RequestPanel';
 import RequestsPanel from '../components/RequestsPanel';
 import Toasts from '../components/Toasts';
 import VideoUrlInput from '../components/VideoUrlInput';
 import YouTubePlayer from '../components/YouTubePlayer';
 import { useRoom } from '../hooks/useRoom';
-import { loadUsername, saveUsername } from '../lib/storage';
+import { clearAuth, getAuth } from '../lib/auth';
+import type { AuthInfo } from '../lib/auth';
 import { canControl, ROLE_LABEL } from '../lib/types';
 import type { Role } from '../lib/types';
 
 export default function Room() {
   const { code = '' } = useParams();
   const roomCode = code.toUpperCase();
-  const [username, setUsername] = useState(loadUsername());
-
-  if (!username) {
-    return (
-      <NamePrompt
-        roomCode={roomCode}
-        onSubmit={(n) => {
-          saveUsername(n);
-          setUsername(n);
-        }}
-      />
-    );
-  }
-  return <RoomView roomCode={roomCode} username={username} />;
-}
-
-function NamePrompt({ roomCode, onSubmit }: { roomCode: string; onSubmit: (name: string) => void }) {
-  const [name, setName] = useState('');
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const n = name.trim().replace(/\s+/g, ' ');
-    if (n && n.length <= 24) onSubmit(n);
-  };
-  return (
-    <div className="home">
-      <div className="card home-card">
-        <h2>Join room {roomCode}</h2>
-        <form onSubmit={submit} className="stack">
-          <label className="field">
-            Your name
-            <input value={name} maxLength={24} autoFocus onChange={(e) => setName(e.target.value)} />
-          </label>
-          <button className="btn primary big" type="submit" disabled={!name.trim()}>
-            Join
-          </button>
-        </form>
-      </div>
-    </div>
-  );
+  const auth = getAuth();
+  if (!auth) return <Navigate to="/login" replace state={{ from: `/room/${roomCode}` }} />;
+  return <RoomView roomCode={roomCode} auth={auth} />;
 }
 
 function Message({ title, text, children }: { title: string; text: string; children?: React.ReactNode }) {
@@ -69,9 +35,9 @@ function Message({ title, text, children }: { title: string; text: string; child
   );
 }
 
-function RoomView({ roomCode, username }: { roomCode: string; username: string }) {
+function RoomView({ roomCode, auth }: { roomCode: string; auth: AuthInfo }) {
   const navigate = useNavigate();
-  const { state, send, dismissNotice, myRole } = useRoom(roomCode, username);
+  const { state, send, dismissNotice, myRole } = useRoom(roomCode, auth.token);
   const [copied, setCopied] = useState(false);
 
   const control = canControl(myRole);
@@ -101,6 +67,30 @@ function RoomView({ roomCode, username }: { roomCode: string; username: string }
   };
 
   // ---- Terminal states ----
+  if (state.status === 'unauthorized') {
+    return (
+      <Message title="Please log in again" text="Your login is not valid any more (it may have expired).">
+        <button
+          className="btn primary"
+          onClick={() => {
+            clearAuth();
+            navigate('/login', { replace: true, state: { from: `/room/${roomCode}` } });
+          }}
+        >
+          Log in
+        </button>
+      </Message>
+    );
+  }
+  if (state.status === 'room_full') {
+    return (
+      <Message title="This room is full" text="The room has reached its maximum number of people. Try again later.">
+        <Link className="btn primary" to="/">
+          Back to home
+        </Link>
+      </Message>
+    );
+  }
   if (state.status === 'not_found') {
     return (
       <Message title="Room not found" text={`There is no room with the code ${roomCode}.`}>
@@ -123,7 +113,7 @@ function RoomView({ roomCode, username }: { roomCode: string; username: string }
     return (
       <Message
         title="Opened in another tab"
-        text="This room is now active in another tab or window. Only one tab can be connected at a time."
+        text="You joined this room from another tab or window. One account can use only one tab at a time."
       >
         <button className="btn primary" onClick={() => window.location.reload()}>
           Use this tab instead
@@ -151,15 +141,12 @@ function RoomView({ roomCode, username }: { roomCode: string; username: string }
           Watch Party
         </Link>
         <div className="topbar-mid">
-          {/* <span className="code-chip" title="Room code">
-            {roomCode}
-          </span> */}
           <button className="btn small" onClick={copyInvite}>
             {copied ? 'Copied!' : 'Copy invite link'}
           </button>
         </div>
         <div className="topbar-right">
-          <span className="muted">{username}</span>
+          <span className="muted">{auth.user.username}</span>
           {myRole && <span className={`badge badge-${myRole.toLowerCase()}`}>{ROLE_LABEL[myRole as Role]}</span>}
           <button className="btn small" onClick={leave}>
             Leave
@@ -173,7 +160,14 @@ function RoomView({ roomCode, username }: { roomCode: string; username: string }
 
       <main className="layout">
         <section className="col-main">
-          <YouTubePlayer sync={state.sync} canControl={control} onCommand={sendPlayback} />
+          <YouTubePlayer
+            sync={state.sync}
+            canControl={control}
+            onCommand={sendPlayback}
+            overlay={<ReactionLayer reactions={state.reactions} />}
+          />
+
+          <ReactionBar onReact={(emoji) => send('react', { emoji })} />
 
           {control && (
             <div className="card">

@@ -60,15 +60,15 @@ public class RoomService {
     // ------------------------------------------------------------------ create / lookup
 
     @Transactional
-    public CreatedRoom createRoom() {
+    public CreatedRoom createRoom(long ownerId) {
         String code;
         do {
             code = randomCode();
         } while (roomRepo.existsById(code));
 
         String hostKey = UUID.randomUUID().toString().replace("-", "");
-        roomRepo.save(new RoomEntity(code, hostKey, props.defaultVideoId()));
-        log.info("Room {} created", code);
+        roomRepo.save(new RoomEntity(code, hostKey, props.defaultVideoId(), ownerId));
+        log.info("Room {} created by account {}", code, ownerId);
         return new CreatedRoom(code, hostKey);
     }
 
@@ -101,7 +101,8 @@ public class RoomService {
         }
         RoomEntity e = entity.get();
         Room loaded = rooms.computeIfAbsent(code,
-                c -> new Room(c, new PlaybackState(e.getVideoId(), false, e.getPositionSeconds())));
+                c -> new Room(c, new PlaybackState(e.getVideoId(), false, e.getPositionSeconds()),
+                        props.maxParticipantsPerRoom()));
         return Optional.of(loaded);
     }
 
@@ -118,7 +119,14 @@ public class RoomService {
         return new ArrayList<>(rooms.values());
     }
 
-    // ------------------------------------------------------------------ host key
+    // ------------------------------------------------------------------ host key / owner
+
+    /** True if this account created the room. */
+    public boolean isOwner(String code, long accountId) {
+        return roomRepo.findById(code)
+                .map(e -> e.getOwnerId() != null && e.getOwnerId() == accountId)
+                .orElse(false);
+    }
 
     public boolean hostKeyMatches(String code, String hostKey) {
         if (hostKey == null || hostKey.isBlank()) {

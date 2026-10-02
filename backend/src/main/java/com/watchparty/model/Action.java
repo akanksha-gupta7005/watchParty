@@ -11,5 +11,6 @@ public enum Action {
     TRANSFER_HOST,
     RESOLVE_REQUEST,
     REQUEST_ACTION,
-    CHAT
+    CHAT,
+    REACT
 }

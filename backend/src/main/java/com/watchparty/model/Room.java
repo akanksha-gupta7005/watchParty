@@ -30,11 +30,13 @@ public class Room {
     private final PlaybackState playback;
     private final Map<String, Participant> participants = new LinkedHashMap<>(); // join order
     private final Map<String, PendingRequest> pending = new LinkedHashMap<>();
+    private final int maxParticipants;
     private boolean closed = false;
 
-    public Room(String code, PlaybackState playback) {
+    public Room(String code, PlaybackState playback, int maxParticipants) {
         this.code = code;
         this.playback = playback;
+        this.maxParticipants = maxParticipants;
     }
 
     public String getCode() {
@@ -79,16 +81,29 @@ public class Room {
         return userId == null ? null : participants.get(userId);
     }
 
+    /** One account = one seat. Used to let a person come back (or move to another tab). */
+    public synchronized Participant findByAccountId(long accountId) {
+        for (Participant p : participants.values()) {
+            if (p.getAccountId() == accountId) {
+                return p;
+            }
+        }
+        return null;
+    }
+
     // ------------------------------------------------------------------ membership
 
     /** Adds a brand new participant. Returns null if the room was closed in the meantime. */
-    public synchronized Participant join(String username, Role role, Connection conn,
+    public synchronized Participant join(String username, long accountId, Role role, Connection conn,
                                          List<Map<String, Object>> chatHistory) {
         if (closed) {
             return null;
         }
+        if (participants.size() >= maxParticipants) {
+            throw new WsException("ROOM_FULL", "This room is full (maximum " + maxParticipants + " people)");
+        }
         String userId = "u_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
-        Participant p = new Participant(userId, UUID.randomUUID().toString(), username, role, conn);
+        Participant p = new Participant(userId, UUID.randomUUID().toString(), accountId, username, role, conn);
         participants.put(userId, p);
 
         p.send(joinedMessage(p, chatHistory));
@@ -308,6 +323,19 @@ public class Room {
                 p.send(json);
             }
         }
+    }
+
+    // ------------------------------------------------------------------ reactions
+
+    /** Sends an emoji reaction to everyone, stamped with the video time it happened at. */
+    public synchronized void broadcastReaction(Participant from, String emojiKey) {
+        double at = Math.round(playback.currentPosition() * 10.0) / 10.0;
+        broadcast(Outbound.msg("reaction",
+                "userId", from.getUserId(),
+                "username", from.getUsername(),
+                "emoji", emojiKey,
+                "videoTime", at,
+                "ts", System.currentTimeMillis()));
     }
 
     // ------------------------------------------------------------------ chat
