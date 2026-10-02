@@ -17,11 +17,11 @@ function write(store: Storage, key: string, value: string): void {
 }
 
 export function loadUsername(): string {
-  return read(localStorage, 'wp:username') ?? '';
+  return read(sessionStorage, 'wp:username') ?? '';
 }
 
 export function saveUsername(name: string): void {
-  write(localStorage, 'wp:username', name);
+  write(sessionStorage, 'wp:username', name);
 }
 
 // The host key proves "I created this room" (kept across browser restarts).
